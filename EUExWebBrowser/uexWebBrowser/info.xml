@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <uexplugins>
     <plugin
-        uexName="uexWebBrowser" version="4.0.0" build="0">
-        <info>0:uexWebBrowser for iOS</info>
+        uexName="uexWebBrowser" version="4.0.4" build="4">
+        <info>4:弹窗实现</info>
+        <build>3:本地路径兼容性修复</build>
+        <build>2:兼容本地路径</build>
+        <build>1:loadUrl方法兼容本地路径</build>
+        <build>0:uexWebBrowser for iOS</build>
     </plugin>
 </uexplugins>

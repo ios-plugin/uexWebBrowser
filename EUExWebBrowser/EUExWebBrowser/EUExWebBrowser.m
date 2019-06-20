@@ -25,7 +25,7 @@
 #import "EUExWebBrowser.h"
 #import <WebKit/WebKit.h>
 
-@interface EUExWebBrowser()
+@interface EUExWebBrowser() <WKUIDelegate>//<WKNavigationDelegate>
 @property (nonatomic, strong) WKWebView *webview;
 @property (nonatomic, strong) NSString *userAgent;
 @end
@@ -42,6 +42,8 @@
 
 - (void)clean{
     if (self.webview) {
+        self.webview.UIDelegate = nil;
+        self.webview.navigationDelegate = nil;
         [self.webview stopLoading];
         [self.webview removeFromSuperview];
         self.webview = nil;
@@ -75,14 +77,24 @@
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc]init];
     config.allowsInlineMediaPlayback = YES;
     self.webview = [[WKWebView alloc]initWithFrame:frame configuration:config];
+//    self.webview.navigationDelegate = self;
+    self.webview.UIDelegate = self;
     
     if (ACSystemVersion() >= 9) {
         self.webview.customUserAgent = self.userAgent;
     }
     NSString *urlString = stringArg(info[@"url"]);
-    NSURL *url = [NSURL URLWithString:urlString];
-    if (url) {
-        [self.webview loadRequest:[NSURLRequest requestWithURL:url]];
+    NSURL *url = nil;
+    if ([urlString hasPrefix:@"http://"] || [urlString hasPrefix:@"https://"]) {
+        url = [NSURL URLWithString:urlString];
+        if (url) {
+            [self.webview loadRequest:[NSURLRequest requestWithURL:url]];
+        }
+    } else {
+        url = [NSURL fileURLWithPath:[urlString hasPrefix:@"file://"]?[urlString substringFromIndex:7]:urlString];
+        if (url) {
+            [self.webview loadFileURL:url allowingReadAccessToURL:[NSURL fileURLWithPath:[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES)lastObject]]];
+        }
     }
     [[self.webViewEngine webView] addSubview:self.webview];
 }
@@ -119,9 +131,20 @@
 
 - (void)loadUrl:(NSMutableArray *)inArguments{
     ACArgsUnpack(NSString *urlString) = inArguments;
-    NSURL *url = [NSURL URLWithString:urlString];
-    if (url) {
-        [self.webview loadRequest:[NSURLRequest requestWithURL:url]];
+    if (!urlString || ![urlString isKindOfClass:[NSString class]]) {
+        return;
+    }
+    NSURL *url = nil;
+    if ([urlString hasPrefix:@"http://"] || [urlString hasPrefix:@"https://"]) {
+        url = [NSURL URLWithString:urlString];
+        if (url) {
+            [self.webview loadRequest:[NSURLRequest requestWithURL:url]];
+        }
+    } else {
+        url = [NSURL fileURLWithPath:[urlString hasPrefix:@"file://"]?[urlString substringFromIndex:7]:urlString];
+        if (url) {
+            [self.webview loadFileURL:url allowingReadAccessToURL:[NSURL fileURLWithPath:[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES)lastObject]]];
+        }
     }
 }
 
@@ -135,8 +158,59 @@
     [self.webview evaluateJavaScript:js completionHandler:nil];
 }
 
+#pragma mark - WKUIDelegate
+- (void)webView:(WKWebView *)webView runJavaScriptAlertPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(void))completionHandler{
+    UIAlertController *alertController = [UIAlertController alertControllerWithTitle:@"提示" message:message?:@"" preferredStyle:UIAlertControllerStyleAlert];
+    [alertController addAction:([UIAlertAction actionWithTitle:@"确认" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        completionHandler();
+    }])];
+    [[self.webViewEngine viewController] presentViewController:alertController animated:YES completion:nil];
+    
+}
 
+- (void)webView:(WKWebView *)webView runJavaScriptConfirmPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(BOOL))completionHandler{
+    //    DLOG(@"msg = %@ frmae = %@",message,frame);
+    UIAlertController *alertController = [UIAlertController alertControllerWithTitle:@"提示" message:message?:@"" preferredStyle:UIAlertControllerStyleAlert];
+    [alertController addAction:([UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
+        completionHandler(NO);
+    }])];
+    [alertController addAction:([UIAlertAction actionWithTitle:@"确认" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        completionHandler(YES);
+    }])];
+    [[self.webViewEngine viewController] presentViewController:alertController animated:YES completion:nil];
+}
 
+- (void)webView:(WKWebView *)webView runJavaScriptTextInputPanelWithPrompt:(NSString *)prompt defaultText:(NSString *)defaultText initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(NSString * _Nullable))completionHandler{
+    UIAlertController *alertController = [UIAlertController alertControllerWithTitle:prompt message:@"" preferredStyle:UIAlertControllerStyleAlert];
+    [alertController addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {
+        textField.text = defaultText;
+    }];
+    [alertController addAction:([UIAlertAction actionWithTitle:@"完成" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        completionHandler(alertController.textFields[0].text?:@"");
+    }])];
+    [[self.webViewEngine viewController] presentViewController:alertController animated:YES completion:nil];
+}
 
+//#pragma mark - WKNavigationDelegate
+//// 页面开始加载时调用
+//- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
+//
+//}
+//// 页面加载失败时调用
+//- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(null_unspecified WKNavigation *)navigation withError:(NSError *)error {
+//    NSLog(@"%@",error);
+//}
+//// 当内容开始返回时调用
+//- (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation {
+//    NSLog(@"%@",webView);
+//}
+//// 页面加载完成之后调用
+//- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+//    NSLog(@"%@",webView);
+//}
+////提交发生错误时调用
+//- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+//    NSLog(@"%@",error);
+//}
 
 @end
