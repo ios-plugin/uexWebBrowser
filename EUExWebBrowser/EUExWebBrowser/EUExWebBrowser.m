@@ -86,14 +86,34 @@
     NSString *urlString = stringArg(info[@"url"]);
     NSURL *url = nil;
     if ([urlString hasPrefix:@"http://"] || [urlString hasPrefix:@"https://"]) {
+        // 在线资源
         url = [NSURL URLWithString:urlString];
         if (url) {
             [self.webview loadRequest:[NSURLRequest requestWithURL:url]];
         }
     } else {
+        // 本地资源
+        NSString *documentsRootPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES)lastObject];
+        NSString *mainBundleRootPath = [[NSBundle mainBundle] resourcePath];
+        ACLogDebug(@"AppCan===>uexWebBrowser===>urlString===>%@", urlString);
         url = [NSURL fileURLWithPath:[urlString hasPrefix:@"file://"]?[urlString substringFromIndex:7]:urlString];
+        // allowingReadAccessToURL这个参数是WKWebView为了读取本地资源的时候设置允许读取的资源范围
+        NSString *allowingReadAccessToURL = nil;
         if (url) {
-            [self.webview loadFileURL:url allowingReadAccessToURL:[NSURL fileURLWithPath:[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES)lastObject]]];
+            if ([urlString containsString:mainBundleRootPath]) {
+                // 这种情况下，加载的页面是在app内的mainBundle的资源
+                allowingReadAccessToURL = mainBundleRootPath;
+            } else if ([urlString containsString:documentsRootPath]) {
+                // 这种情况下，加载的页面是已经拷贝到沙箱目录中了
+                allowingReadAccessToURL = documentsRootPath;
+            } else {
+                // 其他情况，目前来看是不存在的
+                allowingReadAccessToURL = urlString;
+            }
+            ACLogDebug(@"AppCan===>uexWebBrowser===>allowingReadAccessToURL===>%@", allowingReadAccessToURL);
+            [self.webview loadFileURL:url allowingReadAccessToURL:[NSURL fileURLWithPath:allowingReadAccessToURL]];
+        }else{
+            ACLogError(@"AppCan===>uexWebBrowser===>url error, loadFileURL cancelled!");
         }
     }
     [[self.webViewEngine webView] addSubview:self.webview];
