@@ -25,7 +25,7 @@
 #import "EUExWebBrowser.h"
 #import <WebKit/WebKit.h>
 
-@interface EUExWebBrowser() <WKUIDelegate>//<WKNavigationDelegate>
+@interface EUExWebBrowser() <WKUIDelegate, WKNavigationDelegate>
 @property (nonatomic, strong) WKWebView *webview;
 @property (nonatomic, strong) NSString *userAgent;
 @end
@@ -77,25 +77,16 @@
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc]init];
     config.allowsInlineMediaPlayback = YES;
     self.webview = [[WKWebView alloc]initWithFrame:frame configuration:config];
-//    self.webview.navigationDelegate = self;
+    self.webview.navigationDelegate = self;
     self.webview.UIDelegate = self;
     
     if (ACSystemVersion() >= 9) {
         self.webview.customUserAgent = self.userAgent;
     }
     NSString *urlString = stringArg(info[@"url"]);
-    NSURL *url = nil;
-    if ([urlString hasPrefix:@"http://"] || [urlString hasPrefix:@"https://"]) {
-        url = [NSURL URLWithString:urlString];
-        if (url) {
-            [self.webview loadRequest:[NSURLRequest requestWithURL:url]];
-        }
-    } else {
-        url = [NSURL fileURLWithPath:[urlString hasPrefix:@"file://"]?[urlString substringFromIndex:7]:urlString];
-        if (url) {
-            [self.webview loadFileURL:url allowingReadAccessToURL:[NSURL fileURLWithPath:[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES)lastObject]]];
-        }
-    }
+    // 加载页面
+    [self loadAllUrl:urlString];
+    // 将WKWebView添加到界面中
     [[self.webViewEngine webView] addSubview:self.webview];
 }
 
@@ -129,23 +120,57 @@
     [self.webview reload];
 }
 
-- (void)loadUrl:(NSMutableArray *)inArguments{
-    ACArgsUnpack(NSString *urlString) = inArguments;
-    if (!urlString || ![urlString isKindOfClass:[NSString class]]) {
-        return;
-    }
+/**
+ 加载本地或在线页面（处理AppCan引擎逻辑下的多种情况）
+
+ @param urlString 需要加载的url
+ */
+- (void)loadAllUrl:(NSString *)urlString {
     NSURL *url = nil;
     if ([urlString hasPrefix:@"http://"] || [urlString hasPrefix:@"https://"]) {
+        // 在线资源
         url = [NSURL URLWithString:urlString];
         if (url) {
             [self.webview loadRequest:[NSURLRequest requestWithURL:url]];
         }
     } else {
-        url = [NSURL fileURLWithPath:[urlString hasPrefix:@"file://"]?[urlString substringFromIndex:7]:urlString];
+        // 本地资源
+        NSString *documentsRootPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES)lastObject];
+        NSString *mainBundleRootPath = [[NSBundle mainBundle] resourcePath];
+        ACLogDebug(@"AppCan===>uexWebBrowser===>urlString===>%@", urlString);
+        // NSString *realUrlString = [urlString hasPrefix:@"file://"]?[urlString substringFromIndex:7]:urlString;
+        // url = [NSURL fileURLWithPath:realUrlString];
+        // note：这里之所以没有用fileUrlWithPath而是手动拼接file://再使用urlWithString方法，是为了防止将url中的特殊字符自动转义，从而导致?后面的参数失效甚至无法打开网页。
+        NSString *realUrlString = [urlString hasPrefix:@"file://"]?urlString:[NSString stringWithFormat:@"file://%@", urlString];
+        url = [NSURL URLWithString:realUrlString];
+        // allowingReadAccessToURL这个参数是WKWebView为了读取本地资源的时候设置允许读取的资源范围
+        NSString *allowingReadAccessToURL = nil;
         if (url) {
-            [self.webview loadFileURL:url allowingReadAccessToURL:[NSURL fileURLWithPath:[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES)lastObject]]];
+            if ([realUrlString containsString:mainBundleRootPath]) {
+                // 这种情况下，加载的页面是在app内的mainBundle的资源
+                allowingReadAccessToURL = mainBundleRootPath;
+            } else if ([realUrlString containsString:documentsRootPath]) {
+                // 这种情况下，加载的页面是已经拷贝到沙箱目录中了
+                allowingReadAccessToURL = documentsRootPath;
+            } else {
+                // 其他情况，目前来看是不存在的
+                allowingReadAccessToURL = realUrlString;
+            }
+            ACLogDebug(@"AppCan===>uexWebBrowser===>allowingReadAccessToURL===>%@", allowingReadAccessToURL);
+            [self.webview loadFileURL:url allowingReadAccessToURL:[NSURL fileURLWithPath:allowingReadAccessToURL]];
+        }else{
+            ACLogError(@"AppCan===>uexWebBrowser===>url error, loadFileURL cancelled!");
         }
     }
+}
+
+- (void)loadUrl:(NSMutableArray *)inArguments{
+    ACArgsUnpack(NSString *urlString) = inArguments;
+    if (!urlString || ![urlString isKindOfClass:[NSString class]]) {
+        return;
+    }
+    // 加载页面
+    [self loadAllUrl:urlString];
 }
 
 - (void)evaluateJavascript:(NSMutableArray *)inArguments{
@@ -191,26 +216,26 @@
     [[self.webViewEngine viewController] presentViewController:alertController animated:YES completion:nil];
 }
 
-//#pragma mark - WKNavigationDelegate
-//// 页面开始加载时调用
-//- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
-//
-//}
-//// 页面加载失败时调用
-//- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(null_unspecified WKNavigation *)navigation withError:(NSError *)error {
-//    NSLog(@"%@",error);
-//}
-//// 当内容开始返回时调用
-//- (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation {
-//    NSLog(@"%@",webView);
-//}
-//// 页面加载完成之后调用
-//- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
-//    NSLog(@"%@",webView);
-//}
-////提交发生错误时调用
-//- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
-//    NSLog(@"%@",error);
-//}
+#pragma mark - WKNavigationDelegate
+// 页面开始加载时调用
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
+
+}
+// 页面加载失败时调用
+- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(null_unspecified WKNavigation *)navigation withError:(NSError *)error {
+    ACLogError(@"AppCan===>uexWebBrowser===>%@",error);
+}
+// 当内容开始返回时调用
+- (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation {
+//    ACLogDebug(@"%@",webView);
+}
+// 页面加载完成之后调用
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+//    ACLogDebug(@"%@",webView);
+}
+//提交发生错误时调用
+- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    ACLogError(@"AppCan===>uexWebBrowser===>%@",error);
+}
 
 @end
